@@ -19,11 +19,12 @@
 
 package org.elasticsearch.node.internal;
 
+import org.apache.lucene.util.IOUtils;
 import org.elasticsearch.Build;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.ActionModule;
-import org.elasticsearch.action.bench.BenchmarkModule;
+import org.elasticsearch.action.benchmark.BenchmarkModule;
 import org.elasticsearch.bulk.udp.BulkUdpModule;
 import org.elasticsearch.bulk.udp.BulkUdpService;
 import org.elasticsearch.cache.recycler.CacheRecycler;
@@ -35,8 +36,10 @@ import org.elasticsearch.client.node.NodeClientModule;
 import org.elasticsearch.cluster.ClusterModule;
 import org.elasticsearch.cluster.ClusterNameModule;
 import org.elasticsearch.cluster.ClusterService;
+import org.elasticsearch.cluster.action.index.MappingUpdatedAction;
 import org.elasticsearch.cluster.routing.RoutingService;
 import org.elasticsearch.cluster.routing.allocation.AllocationService;
+import org.elasticsearch.cluster.service.InternalClusterService;
 import org.elasticsearch.common.StopWatch;
 import org.elasticsearch.common.collect.Tuple;
 import org.elasticsearch.common.component.Lifecycle;
@@ -46,6 +49,8 @@ import org.elasticsearch.common.inject.Injector;
 import org.elasticsearch.common.inject.Injectors;
 import org.elasticsearch.common.inject.ModulesBuilder;
 import org.elasticsearch.common.io.CachedStreams;
+import org.elasticsearch.common.lease.Releasable;
+import org.elasticsearch.common.lease.Releasables;
 import org.elasticsearch.common.logging.ESLogger;
 import org.elasticsearch.common.logging.Loggers;
 import org.elasticsearch.common.network.NetworkModule;
@@ -151,45 +156,53 @@ public final class InternalNode implements Node {
 
         NodeEnvironment nodeEnvironment = new NodeEnvironment(this.settings, this.environment);
 
-        ModulesBuilder modules = new ModulesBuilder();
-        modules.add(new Version.Module(version));
-        modules.add(new CacheRecyclerModule(settings));
-        modules.add(new PageCacheRecyclerModule(settings));
-        modules.add(new BigArraysModule(settings));
-        modules.add(new PluginsModule(settings, pluginsService));
-        modules.add(new SettingsModule(settings));
-        modules.add(new NodeModule(this));
-        modules.add(new NetworkModule());
-        modules.add(new ScriptModule(settings));
-        modules.add(new EnvironmentModule(environment));
-        modules.add(new NodeEnvironmentModule(nodeEnvironment));
-        modules.add(new ClusterNameModule(settings));
-        modules.add(new ThreadPoolModule(settings));
-        modules.add(new DiscoveryModule(settings));
-        modules.add(new ClusterModule(settings));
-        modules.add(new RestModule(settings));
-        modules.add(new TransportModule(settings));
-        if (settings.getAsBoolean("http.enabled", true)) {
-            modules.add(new HttpServerModule(settings));
+        boolean success = false;
+        try {
+            ModulesBuilder modules = new ModulesBuilder();
+            modules.add(new Version.Module(version));
+            modules.add(new CacheRecyclerModule(settings));
+            modules.add(new PageCacheRecyclerModule(settings));
+            modules.add(new BigArraysModule(settings));
+            modules.add(new PluginsModule(settings, pluginsService));
+            modules.add(new SettingsModule(settings));
+            modules.add(new NodeModule(this));
+            modules.add(new NetworkModule());
+            modules.add(new ScriptModule(settings));
+            modules.add(new EnvironmentModule(environment));
+            modules.add(new NodeEnvironmentModule(nodeEnvironment));
+            modules.add(new ClusterNameModule(settings));
+            modules.add(new ThreadPoolModule(settings));
+            modules.add(new DiscoveryModule(settings));
+            modules.add(new ClusterModule(settings));
+            modules.add(new RestModule(settings));
+            modules.add(new TransportModule(settings));
+            if (settings.getAsBoolean("http.enabled", true)) {
+                modules.add(new HttpServerModule(settings));
+            }
+            modules.add(new RiversModule(settings));
+            modules.add(new IndicesModule(settings));
+            modules.add(new SearchModule());
+            modules.add(new ActionModule(false));
+            modules.add(new MonitorModule(settings));
+            modules.add(new GatewayModule(settings));
+            modules.add(new NodeClientModule());
+            modules.add(new BulkUdpModule());
+            modules.add(new ShapeModule());
+            modules.add(new PercolatorModule());
+            modules.add(new ResourceWatcherModule());
+            modules.add(new RepositoriesModule());
+            modules.add(new TribeModule());
+            modules.add(new BenchmarkModule(settings));
+
+            injector = modules.createInjector();
+
+            client = injector.getInstance(Client.class);
+            success = true;
+        } finally {
+            if (!success) {
+                nodeEnvironment.close();
+            }
         }
-        modules.add(new RiversModule(settings));
-        modules.add(new IndicesModule(settings));
-        modules.add(new SearchModule());
-        modules.add(new ActionModule(false));
-        modules.add(new MonitorModule(settings));
-        modules.add(new GatewayModule(settings));
-        modules.add(new NodeClientModule());
-        modules.add(new BulkUdpModule());
-        modules.add(new ShapeModule());
-        modules.add(new PercolatorModule());
-        modules.add(new ResourceWatcherModule());
-        modules.add(new RepositoriesModule());
-        modules.add(new TribeModule());
-        modules.add(new BenchmarkModule(settings));
-
-        injector = modules.createInjector();
-
-        client = injector.getInstance(Client.class);
 
         logger.info("initialized");
     }
@@ -219,6 +232,7 @@ public final class InternalNode implements Node {
             injector.getInstance(plugin).start();
         }
 
+        injector.getInstance(MappingUpdatedAction.class).start();
         injector.getInstance(IndicesService.class).start();
         injector.getInstance(IndexingMemoryController.class).start();
         injector.getInstance(IndicesClusterStateService.class).start();
@@ -232,6 +246,7 @@ public final class InternalNode implements Node {
         injector.getInstance(RestController.class).start();
         injector.getInstance(TransportService.class).start();
         DiscoveryService discoService = injector.getInstance(DiscoveryService.class).start();
+        discoService.waitForInitialState();
 
         // gateway should start after disco, so it can try and recovery from gateway on "start"
         injector.getInstance(GatewayService.class).start();
@@ -263,6 +278,7 @@ public final class InternalNode implements Node {
             injector.getInstance(HttpServer.class).stop();
         }
 
+        injector.getInstance(MappingUpdatedAction.class).stop();
         injector.getInstance(RiversManager.class).stop();
 
         injector.getInstance(SnapshotsService.class).stop();
@@ -323,7 +339,7 @@ public final class InternalNode implements Node {
         stopWatch.stop().start("snapshot_service");
         injector.getInstance(SnapshotsService.class).close();
         stopWatch.stop().start("client");
-        injector.getInstance(Client.class).close();
+        Releasables.close(injector.getInstance(Client.class));
         stopWatch.stop().start("indices_cluster");
         injector.getInstance(IndicesClusterStateService.class).close();
         stopWatch.stop().start("indices");

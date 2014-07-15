@@ -57,19 +57,19 @@ public class NoMasterNodeTests extends ElasticsearchIntegrationTest {
 
         TimeValue timeout = TimeValue.timeValueMillis(200);
 
-        cluster().startNode(settings);
+        internalCluster().startNode(settings);
         // start a second node, create an index, and then shut it down so we have no master block
-        cluster().startNode(settings);
+        internalCluster().startNode(settings);
         createIndex("test");
         client().admin().cluster().prepareHealth("test").setWaitForGreenStatus().execute().actionGet();
-        cluster().stopRandomDataNode();
-        assertThat(awaitBusy(new Predicate<Object>() {
-            public boolean apply(Object o) {
+        internalCluster().stopRandomDataNode();
+        assertBusy(new Runnable() {
+            @Override
+            public void run() {
                 ClusterState state = client().admin().cluster().prepareState().setLocal(true).execute().actionGet().getState();
-                return state.blocks().hasGlobalBlock(Discovery.NO_MASTER_BLOCK);
+                assertTrue(state.blocks().hasGlobalBlock(Discovery.NO_MASTER_BLOCK));
             }
-        }), equalTo(true));
-
+        });
 
         try {
             client().prepareGet("test", "type1", "1").execute().actionGet();
@@ -98,7 +98,7 @@ public class NoMasterNodeTests extends ElasticsearchIntegrationTest {
 
         long now = System.currentTimeMillis();
         try {
-            client().prepareUpdate("test", "type1", "1").setScript("test script").setTimeout(timeout).execute().actionGet();
+            client().prepareUpdate("test", "type1", "1").setInlineScript("test script").setTimeout(timeout).execute().actionGet();
             fail("Expected ClusterBlockException");
         } catch (ClusterBlockException e) {
             assertThat(System.currentTimeMillis() - now, greaterThan(timeout.millis() - 50));
@@ -128,7 +128,7 @@ public class NoMasterNodeTests extends ElasticsearchIntegrationTest {
             assertThat(e.status(), equalTo(RestStatus.SERVICE_UNAVAILABLE));
         }
 
-        cluster().startNode(settings);
+        internalCluster().startNode(settings);
         client().admin().cluster().prepareHealth().setWaitForGreenStatus().setWaitForNodes("2").execute().actionGet();
     }
 }

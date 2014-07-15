@@ -31,6 +31,7 @@ import org.elasticsearch.common.lucene.index.FilterableTermsEnum;
 import org.elasticsearch.common.lucene.index.FreqTermsEnum;
 import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.search.aggregations.*;
+import org.elasticsearch.search.aggregations.bucket.significant.heuristics.SignificanceHeuristic;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregator;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregatorFactory;
 import org.elasticsearch.search.aggregations.bucket.terms.support.IncludeExclude;
@@ -47,6 +48,10 @@ import java.io.IOException;
  */
 public class SignificantTermsAggregatorFactory extends ValuesSourceAggregatorFactory implements Releasable {
 
+    public SignificanceHeuristic getSignificanceHeuristic() {
+        return significanceHeuristic;
+    }
+
     public enum ExecutionMode {
 
         MAP(new ParseField("map")) {
@@ -56,24 +61,6 @@ public class SignificantTermsAggregatorFactory extends ValuesSourceAggregatorFac
                               TermsAggregator.BucketCountThresholds bucketCountThresholds, IncludeExclude includeExclude,
                               AggregationContext aggregationContext, Aggregator parent, SignificantTermsAggregatorFactory termsAggregatorFactory) {
                 return new SignificantStringTermsAggregator(name, factories, valuesSource, estimatedBucketCount, bucketCountThresholds, includeExclude, aggregationContext, parent, termsAggregatorFactory);
-            }
-
-            @Override
-            boolean needsGlobalOrdinals() {
-                return false;
-            }
-
-        },
-        ORDINALS(new ParseField("ordinals")) {
-
-            @Override
-            Aggregator create(String name, AggregatorFactories factories, ValuesSource valuesSource, long estimatedBucketCount,
-                              TermsAggregator.BucketCountThresholds bucketCountThresholds, IncludeExclude includeExclude,
-                              AggregationContext aggregationContext, Aggregator parent, SignificantTermsAggregatorFactory termsAggregatorFactory) {
-                if (includeExclude != null) {
-                    return MAP.create(name, factories, valuesSource, estimatedBucketCount, bucketCountThresholds, includeExclude, aggregationContext, parent, termsAggregatorFactory);
-                }
-                return new SignificantStringTermsAggregator.WithOrdinals(name, factories, (ValuesSource.Bytes.WithOrdinals) valuesSource, estimatedBucketCount, bucketCountThresholds, aggregationContext, parent, termsAggregatorFactory);
             }
 
             @Override
@@ -149,14 +136,20 @@ public class SignificantTermsAggregatorFactory extends ValuesSourceAggregatorFac
     private int numberOfAggregatorsCreated = 0;
     private Filter filter;
     private final TermsAggregator.BucketCountThresholds bucketCountThresholds;
+    private final SignificanceHeuristic significanceHeuristic;
+
+    protected TermsAggregator.BucketCountThresholds getBucketCountThresholds() {
+        return new TermsAggregator.BucketCountThresholds(bucketCountThresholds);
+    }
 
     public SignificantTermsAggregatorFactory(String name, ValuesSourceConfig valueSourceConfig, TermsAggregator.BucketCountThresholds bucketCountThresholds, IncludeExclude includeExclude,
-                                             String executionHint, Filter filter) {
+                                             String executionHint, Filter filter, SignificanceHeuristic significanceHeuristic) {
 
         super(name, SignificantStringTerms.TYPE.name(), valueSourceConfig);
         this.bucketCountThresholds = bucketCountThresholds;
         this.includeExclude = includeExclude;
         this.executionHint = executionHint;
+        this.significanceHeuristic = significanceHeuristic;
         if (!valueSourceConfig.unmapped()) {
             this.indexedFieldName = config.fieldContext().field();
             mapper = SearchContext.current().smartNameFieldMapper(indexedFieldName);

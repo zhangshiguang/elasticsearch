@@ -25,11 +25,11 @@ import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.support.replication.ReplicationType;
 import org.elasticsearch.action.support.single.instance.InstanceShardOperationRequestBuilder;
 import org.elasticsearch.client.Client;
-import org.elasticsearch.client.internal.InternalClient;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.VersionType;
+import org.elasticsearch.script.ScriptService;
 
 import java.util.Map;
 
@@ -38,11 +38,11 @@ import java.util.Map;
 public class UpdateRequestBuilder extends InstanceShardOperationRequestBuilder<UpdateRequest, UpdateResponse, UpdateRequestBuilder> {
 
     public UpdateRequestBuilder(Client client) {
-        super((InternalClient) client, new UpdateRequest());
+        super(client, new UpdateRequest());
     }
 
     public UpdateRequestBuilder(Client client, String index, String type, String id) {
-        super((InternalClient) client, new UpdateRequest(index, type, id));
+        super(client, new UpdateRequest(index, type, id));
     }
 
     /**
@@ -79,21 +79,67 @@ public class UpdateRequestBuilder extends InstanceShardOperationRequestBuilder<U
      * The script to execute. Note, make sure not to send different script each times and instead
      * use script params if possible with the same (automatically compiled) script.
      * <p>
-     * The script works with the variable <code>ctx</code>, which is bound to the entry, 
+     * The script works with the variable <code>ctx</code>, which is bound to the entry,
      * e.g. <code>ctx._source.mycounter += 1</code>.
-     * 
+     *
      * @see #setScriptLang(String)
      * @see #setScriptParams(Map)
      */
-    public UpdateRequestBuilder setScript(String script) {
-        request.script(script);
+    public UpdateRequestBuilder setScript(String script, ScriptService.ScriptType scriptType) {
+        request.script(script, scriptType);
         return this;
     }
 
     /**
+     * The indexed script to execute. Note, make sure not to send different script each times and instead
+     * use script params if possible with the same (automatically compiled) script.
+     * <p>
+     * The script works with the variable <code>ctx</code>, which is bound to the entry,
+     * e.g. <code>ctx._source.mycounter += 1</code>.
+     *
+     * @see #setScriptLang(String)
+     * @see #setScriptParams(Map)
+     */
+    public UpdateRequestBuilder setIndexedScript(String script) {
+        request.script(script, ScriptService.ScriptType.INDEXED);
+        return this;
+    }
+
+    /**
+     * The on disk script to execute. Note, make sure not to send different script each times and instead
+     * use script params if possible with the same (automatically compiled) script.
+     * <p>
+     * The script works with the variable <code>ctx</code>, which is bound to the entry,
+     * e.g. <code>ctx._source.mycounter += 1</code>.
+     *
+     * @see #setScriptLang(String)
+     * @see #setScriptParams(Map)
+     */
+    public UpdateRequestBuilder setOnDiskScript(String script) {
+        request.script(script, ScriptService.ScriptType.FILE);
+        return this;
+    }
+
+    /**
+     * The inline script to execute. Note, make sure not to send different script each times and instead
+     * use script params if possible with the same (automatically compiled) script.
+     * <p>
+     * The script works with the variable <code>ctx</code>, which is bound to the entry,
+     * e.g. <code>ctx._source.mycounter += 1</code>.
+     *
+     * @see #setScriptLang(String)
+     * @see #setScriptParams(Map)
+     */
+    public UpdateRequestBuilder setInlineScript(String script) {
+        request.script(script, ScriptService.ScriptType.INLINE);
+        return this;
+    }
+
+
+    /**
      * The language of the script to execute.
      * Valid options are: mvel, js, groovy, python, and native (Java)<br>
-     * Default: mvel
+     * Default: groovy
      * <p>
      * Ref: http://www.elasticsearch.org/guide/en/elasticsearch/reference/current/modules-scripting.html
      */
@@ -348,6 +394,6 @@ public class UpdateRequestBuilder extends InstanceShardOperationRequestBuilder<U
 
     @Override
     protected void doExecute(ActionListener<UpdateResponse> listener) {
-        ((Client) client).update(request, listener);
+        client.update(request, listener);
     }
 }

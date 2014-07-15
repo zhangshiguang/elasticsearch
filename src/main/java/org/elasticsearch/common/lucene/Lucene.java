@@ -21,15 +21,16 @@ package org.elasticsearch.common.lucene;
 
 import org.apache.lucene.analysis.core.KeywordAnalyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.index.AtomicReaderContext;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.SegmentInfos;
+import org.apache.lucene.codecs.CodecUtil;
+import org.apache.lucene.index.*;
 import org.apache.lucene.search.*;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.Version;
 import org.elasticsearch.ElasticsearchIllegalArgumentException;
+import org.elasticsearch.ExceptionsHelper;
 import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
@@ -45,7 +46,7 @@ import java.io.IOException;
  */
 public class Lucene {
 
-    public static final Version VERSION = Version.LUCENE_48;
+    public static final Version VERSION = Version.LUCENE_4_9;
     public static final Version ANALYZER_VERSION = VERSION;
     public static final Version QUERYPARSER_VERSION = VERSION;
 
@@ -63,56 +64,28 @@ public class Lucene {
         if (version == null) {
             return defaultVersion;
         }
-        if ("4.8".equals(version)) {
-            return VERSION.LUCENE_48;
+        switch(version) {
+            case "4.9": return VERSION.LUCENE_4_9;
+            case "4.8": return VERSION.LUCENE_4_8;
+            case "4.7": return VERSION.LUCENE_4_7;
+            case "4.6": return VERSION.LUCENE_4_6;
+            case "4.5": return VERSION.LUCENE_4_5;
+            case "4.4": return VERSION.LUCENE_4_4;
+            case "4.3": return VERSION.LUCENE_4_3;
+            case "4.2": return VERSION.LUCENE_4_2;
+            case "4.1": return VERSION.LUCENE_4_1;
+            case "4.0": return VERSION.LUCENE_4_0;
+            case "3.6": return VERSION.LUCENE_3_6;
+            case "3.5": return VERSION.LUCENE_3_5;
+            case "3.4": return VERSION.LUCENE_3_4;
+            case "3.3": return VERSION.LUCENE_3_3;
+            case "3.2": return VERSION.LUCENE_3_2;
+            case "3.1": return VERSION.LUCENE_3_1;
+            case "3.0": return VERSION.LUCENE_3_0;
+            default:
+                logger.warn("no version match {}, default to {}", version, defaultVersion);
+                return defaultVersion;
         }
-        if ("4.7".equals(version)) {
-            return VERSION.LUCENE_47;
-        }
-        if ("4.6".equals(version)) {
-            return VERSION.LUCENE_46;
-        }
-        if ("4.5".equals(version)) {
-            return VERSION.LUCENE_45;
-        }
-        if ("4.4".equals(version)) {
-            return VERSION.LUCENE_44;
-        }
-        if ("4.3".equals(version)) {
-            return Version.LUCENE_43;
-        }
-        if ("4.2".equals(version)) {
-            return Version.LUCENE_42;
-        }
-        if ("4.1".equals(version)) {
-            return Version.LUCENE_41;
-        }
-        if ("4.0".equals(version)) {
-            return Version.LUCENE_40;
-        }
-        if ("3.6".equals(version)) {
-            return Version.LUCENE_36;
-        }
-        if ("3.5".equals(version)) {
-            return Version.LUCENE_35;
-        }
-        if ("3.4".equals(version)) {
-            return Version.LUCENE_34;
-        }
-        if ("3.3".equals(version)) {
-            return Version.LUCENE_33;
-        }
-        if ("3.2".equals(version)) {
-            return Version.LUCENE_32;
-        }
-        if ("3.1".equals(version)) {
-            return Version.LUCENE_31;
-        }
-        if ("3.0".equals(version)) {
-            return Version.LUCENE_30;
-        }
-        logger.warn("no version match {}, default to {}", version, defaultVersion);
-        return defaultVersion;
     }
 
     /**
@@ -122,6 +95,28 @@ public class Lucene {
         final SegmentInfos sis = new SegmentInfos();
         sis.read(directory);
         return sis;
+    }
+
+    public static void checkSegmentInfoIntegrity(final Directory directory) throws IOException {
+        new SegmentInfos.FindSegmentsFile(directory) {
+
+            @Override
+            protected Object doBody(String segmentFileName) throws IOException {
+                try (IndexInput input = directory.openInput(segmentFileName, IOContext.READ)) {
+                    final int format = input.readInt();
+                    final int actualFormat;
+                    if (format == CodecUtil.CODEC_MAGIC) {
+                        // 4.0+
+                        actualFormat = CodecUtil.checkHeaderNoMagic(input, "segments", SegmentInfos.VERSION_40, Integer.MAX_VALUE);
+                        if (actualFormat >= SegmentInfos.VERSION_48) {
+                            CodecUtil.checksumEntireFile(input);
+                        }
+                    }
+                    // legacy....
+                }
+                return null;
+            }
+        }.run();
     }
 
     public static long count(IndexSearcher searcher, Query query) throws IOException {
@@ -398,5 +393,13 @@ public class Lucene {
 
     public static final boolean indexExists(final Directory directory) throws IOException {
         return DirectoryReader.indexExists(directory);
+    }
+
+    /**
+     * Returns <tt>true</tt> iff the given exception or
+     * one of it's causes is an instance of {@link CorruptIndexException} otherwise <tt>false</tt>.
+     */
+    public static boolean isCorruptionException(Throwable t) {
+        return ExceptionsHelper.unwrap(t, CorruptIndexException.class) != null;
     }
 }

@@ -30,6 +30,7 @@ import org.elasticsearch.common.settings.ImmutableSettings;
 import org.elasticsearch.common.transport.InetSocketTransportAddress;
 import org.elasticsearch.common.transport.TransportAddress;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.Iterator;
 
@@ -38,7 +39,7 @@ import java.util.Iterator;
  * It is a pure immutable test cluster that allows to send requests to a pre-existing cluster
  * and supports by nature all the needed test operations like wipeIndices etc.
  */
-public final class ExternalTestCluster extends ImmutableTestCluster {
+public final class ExternalTestCluster extends TestCluster {
 
     private final ESLogger logger = Loggers.getLogger(getClass());
 
@@ -50,7 +51,9 @@ public final class ExternalTestCluster extends ImmutableTestCluster {
     private final int numBenchNodes;
 
     public ExternalTestCluster(TransportAddress... transportAddresses) {
-        this.client = new TransportClient(ImmutableSettings.settingsBuilder().put("client.transport.ignore_cluster_name", true))
+        this.client = new TransportClient(ImmutableSettings.settingsBuilder()
+                .put("client.transport.ignore_cluster_name", true)
+                .put("node.mode", "network")) // we require network here!
                 .addTransportAddresses(transportAddresses);
 
         NodesInfoResponse nodeInfos = this.client.admin().cluster().prepareNodesInfo().clear().setSettings(true).setHttp(true).get();
@@ -103,7 +106,7 @@ public final class ExternalTestCluster extends ImmutableTestCluster {
     }
 
     @Override
-    public void close() {
+    public void close() throws IOException {
         client.close();
     }
 

@@ -24,7 +24,6 @@ import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.support.master.TransportMasterNodeOperationAction;
 import org.elasticsearch.cluster.ClusterService;
 import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.cluster.ack.ClusterStateUpdateListener;
 import org.elasticsearch.cluster.ack.ClusterStateUpdateResponse;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
@@ -70,24 +69,19 @@ public class TransportPutMappingAction extends TransportMasterNodeOperationActio
     }
 
     @Override
-    protected void doExecute(PutMappingRequest request, ActionListener<PutMappingResponse> listener) {
-        request.indices(clusterService.state().metaData().concreteIndices(request.indicesOptions(), request.indices()));
-        super.doExecute(request, listener);
-    }
-
-    @Override
     protected ClusterBlockException checkBlock(PutMappingRequest request, ClusterState state) {
-        return state.blocks().indicesBlockedException(ClusterBlockLevel.METADATA, request.indices());
+        return state.blocks().indicesBlockedException(ClusterBlockLevel.METADATA, clusterService.state().metaData().concreteIndices(request.indicesOptions(), request.indices()));
     }
 
     @Override
     protected void masterOperation(final PutMappingRequest request, final ClusterState state, final ActionListener<PutMappingResponse> listener) throws ElasticsearchException {
+        final String[] concreteIndices = clusterService.state().metaData().concreteIndices(request.indicesOptions(), request.indices());
         PutMappingClusterStateUpdateRequest updateRequest = new PutMappingClusterStateUpdateRequest()
                 .ackTimeout(request.timeout()).masterNodeTimeout(request.masterNodeTimeout())
-                .indices(request.indices()).type(request.type())
+                .indices(concreteIndices).type(request.type())
                 .source(request.source()).ignoreConflicts(request.ignoreConflicts());
 
-        metaDataMappingService.putMapping(updateRequest, new ClusterStateUpdateListener() {
+        metaDataMappingService.putMapping(updateRequest, new ActionListener<ClusterStateUpdateResponse>() {
 
             @Override
             public void onResponse(ClusterStateUpdateResponse response) {
@@ -96,7 +90,7 @@ public class TransportPutMappingAction extends TransportMasterNodeOperationActio
 
             @Override
             public void onFailure(Throwable t) {
-                logger.debug("failed to put mappings on indices [{}], type [{}]", t, request.indices(), request.type());
+                logger.debug("failed to put mappings on indices [{}], type [{}]", t, concreteIndices, request.type());
                 listener.onFailure(t);
             }
         });

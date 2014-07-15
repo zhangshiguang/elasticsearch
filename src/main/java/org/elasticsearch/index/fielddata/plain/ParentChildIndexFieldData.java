@@ -73,7 +73,7 @@ public class ParentChildIndexFieldData extends AbstractIndexFieldData<ParentChil
         parentTypes = new TreeSet<>(BytesRef.getUTF8SortedAsUnicodeComparator());
         this.breakerService = breakerService;
         this.globalOrdinalsBuilder = globalOrdinalsBuilder;
-        for (DocumentMapper documentMapper : mapperService) {
+        for (DocumentMapper documentMapper : mapperService.docMappers(false)) {
             beforeCreate(documentMapper);
         }
         mapperService.addTypeListener(this);
@@ -152,7 +152,7 @@ public class ParentChildIndexFieldData extends AbstractIndexFieldData<ParentChil
                 return data;
             } finally {
                 if (success) {
-                    estimator.afterLoad(estimatedTermsEnum, data.getMemorySizeInBytes());
+                    estimator.afterLoad(estimatedTermsEnum, data.ramBytesUsed());
                 } else {
                     estimator.afterLoad(estimatedTermsEnum, 0);
                 }
@@ -309,7 +309,7 @@ public class ParentChildIndexFieldData extends AbstractIndexFieldData<ParentChil
                 PerType perType = new PerType(parentType.utf8ToString());
                 GlobalOrdinalsIndexFieldData globalIfd = (GlobalOrdinalsIndexFieldData) globalOrdinalsBuilder.build(indexReader, perType, indexSettings, breakerService);
                 globalIfdPerType.put(perType.type, globalIfd);
-                memorySizeInBytes += globalIfd.getMemorySizeInBytes();
+                memorySizeInBytes += globalIfd.ramBytesUsed();
             }
             return new ParentChildGlobalOrdinalsIndexFieldData(globalIfdPerType.build(), memorySizeInBytes);
         }
@@ -367,7 +367,7 @@ public class ParentChildIndexFieldData extends AbstractIndexFieldData<ParentChil
                 if(typeAfd != null) {
                     return typeAfd;
                 } else {
-                    return PagedBytesAtomicFieldData.empty();
+                    return AtomicFieldData.WithOrdinals.EMPTY;
                 }
             }
 

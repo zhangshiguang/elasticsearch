@@ -20,7 +20,11 @@
 package org.elasticsearch.client.support;
 
 import org.elasticsearch.action.*;
-import org.elasticsearch.action.bench.*;
+import org.elasticsearch.action.benchmark.abort.*;
+import org.elasticsearch.action.benchmark.pause.*;
+import org.elasticsearch.action.benchmark.resume.*;
+import org.elasticsearch.action.benchmark.start.*;
+import org.elasticsearch.action.benchmark.status.*;
 import org.elasticsearch.action.bulk.BulkAction;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkRequestBuilder;
@@ -46,6 +50,18 @@ import org.elasticsearch.action.index.IndexAction;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexRequestBuilder;
 import org.elasticsearch.action.index.IndexResponse;
+import org.elasticsearch.action.indexedscripts.delete.DeleteIndexedScriptAction;
+import org.elasticsearch.action.indexedscripts.delete.DeleteIndexedScriptRequest;
+import org.elasticsearch.action.indexedscripts.delete.DeleteIndexedScriptRequestBuilder;
+import org.elasticsearch.action.indexedscripts.delete.DeleteIndexedScriptResponse;
+import org.elasticsearch.action.indexedscripts.get.GetIndexedScriptAction;
+import org.elasticsearch.action.indexedscripts.get.GetIndexedScriptRequest;
+import org.elasticsearch.action.indexedscripts.get.GetIndexedScriptRequestBuilder;
+import org.elasticsearch.action.indexedscripts.get.GetIndexedScriptResponse;
+import org.elasticsearch.action.indexedscripts.put.PutIndexedScriptAction;
+import org.elasticsearch.action.indexedscripts.put.PutIndexedScriptRequest;
+import org.elasticsearch.action.indexedscripts.put.PutIndexedScriptRequestBuilder;
+import org.elasticsearch.action.indexedscripts.put.PutIndexedScriptResponse;
 import org.elasticsearch.action.mlt.MoreLikeThisAction;
 import org.elasticsearch.action.mlt.MoreLikeThisRequest;
 import org.elasticsearch.action.mlt.MoreLikeThisRequestBuilder;
@@ -60,16 +76,16 @@ import org.elasticsearch.action.update.UpdateAction;
 import org.elasticsearch.action.update.UpdateRequest;
 import org.elasticsearch.action.update.UpdateRequestBuilder;
 import org.elasticsearch.action.update.UpdateResponse;
-import org.elasticsearch.client.internal.InternalClient;
+import org.elasticsearch.client.Client;
 import org.elasticsearch.common.Nullable;
 
 /**
  *
  */
-public abstract class AbstractClient implements InternalClient {
+public abstract class AbstractClient implements Client {
 
     @Override
-    public <Request extends ActionRequest, Response extends ActionResponse, RequestBuilder extends ActionRequestBuilder<Request, Response, RequestBuilder>> RequestBuilder prepareExecute(final Action<Request, Response, RequestBuilder> action) {
+    public <Request extends ActionRequest, Response extends ActionResponse, RequestBuilder extends ActionRequestBuilder<Request, Response, RequestBuilder, Client>> RequestBuilder prepareExecute(final Action<Request, Response, RequestBuilder, Client> action) {
         return action.newRequestBuilder(this);
     }
 
@@ -187,6 +203,112 @@ public abstract class AbstractClient implements InternalClient {
     public GetRequestBuilder prepareGet(String index, String type, String id) {
         return prepareGet().setIndex(index).setType(type).setId(id);
     }
+
+
+    @Override
+    public ActionFuture<GetIndexedScriptResponse> getIndexedScript(final GetIndexedScriptRequest request) {
+        return execute(GetIndexedScriptAction.INSTANCE, request);
+    }
+
+    @Override
+    public void getIndexedScript(final GetIndexedScriptRequest request, final ActionListener<GetIndexedScriptResponse> listener) {
+        execute(GetIndexedScriptAction.INSTANCE, request, listener);
+    }
+
+    @Override
+    public GetIndexedScriptRequestBuilder prepareGetIndexedScript() {
+        return new GetIndexedScriptRequestBuilder(this);
+    }
+
+    @Override
+    public GetIndexedScriptRequestBuilder prepareGetIndexedScript(String scriptLang, String id) {
+        return prepareGetIndexedScript().setScriptLang(scriptLang).setId(id);
+    }
+
+
+    /**
+     * Put an indexed script
+     */
+    @Override
+    public PutIndexedScriptRequestBuilder preparePutIndexedScript() {
+        return new PutIndexedScriptRequestBuilder(this);
+    }
+
+    /**
+     * Put the indexed script
+     * @param scriptLang
+     * @param id
+     * @param source
+     * @return
+     */
+    @Override
+    public PutIndexedScriptRequestBuilder preparePutIndexedScript(@Nullable String scriptLang, String id, String source){
+        return PutIndexedScriptAction.INSTANCE.newRequestBuilder(this).setScriptLang(scriptLang).setId(id).setSource(source);
+    }
+
+    /**
+     * Put an indexed script
+     *
+     * @param request
+     * @param listener
+     */
+    @Override
+    public void putIndexedScript(final PutIndexedScriptRequest request, ActionListener<PutIndexedScriptResponse> listener){
+        execute(PutIndexedScriptAction.INSTANCE, request, listener);
+
+    }
+
+    /**
+     * Put an indexed script
+     *
+     * @param request The put request
+     * @return The result future
+     */
+    @Override
+    public ActionFuture<PutIndexedScriptResponse> putIndexedScript(final PutIndexedScriptRequest request){
+        return execute(PutIndexedScriptAction.INSTANCE, request);
+    }
+
+    /**
+     * delete an indexed script
+     *
+     * @param request
+     * @param listener
+     */
+    @Override
+    public void deleteIndexedScript(DeleteIndexedScriptRequest request, ActionListener<DeleteIndexedScriptResponse> listener){
+        execute(DeleteIndexedScriptAction.INSTANCE, request, listener);
+    }
+
+    /**
+     * Delete an indexed script
+     *
+     * @param request The put request
+     * @return The result future
+     */
+    public ActionFuture<DeleteIndexedScriptResponse> deleteIndexedScript(DeleteIndexedScriptRequest request){
+        return execute(DeleteIndexedScriptAction.INSTANCE, request);
+    }
+
+
+    /**
+     * Delete an indexed script
+     */
+    public DeleteIndexedScriptRequestBuilder prepareDeleteIndexedScript(){
+        return DeleteIndexedScriptAction.INSTANCE.newRequestBuilder(this);
+    }
+
+    /**
+     * Delete an indexed script
+     * @param scriptLang
+     * @param id
+     * @return
+     */
+    public DeleteIndexedScriptRequestBuilder prepareDeleteIndexedScript(@Nullable String scriptLang, String id){
+        return prepareDeleteIndexedScript().setScriptLang(scriptLang).setId(id);
+    }
+
+
 
     @Override
     public ActionFuture<MultiGetResponse> multiGet(final MultiGetRequest request) {
@@ -384,37 +506,72 @@ public abstract class AbstractClient implements InternalClient {
     }
 
     @Override
-    public void bench(BenchmarkRequest request, ActionListener<BenchmarkResponse> listener) {
-        execute(BenchmarkAction.INSTANCE, request, listener);
+    public void startBenchmark(BenchmarkStartRequest request, ActionListener<BenchmarkStartResponse> listener) {
+        execute(BenchmarkStartAction.INSTANCE, request, listener);
     }
 
     @Override
-    public ActionFuture<BenchmarkResponse> bench(BenchmarkRequest request) {
-        return execute(BenchmarkAction.INSTANCE, request);
+    public ActionFuture<BenchmarkStartResponse> startBenchmark(BenchmarkStartRequest request) {
+        return execute(BenchmarkStartAction.INSTANCE, request);
     }
 
     @Override
-    public BenchmarkRequestBuilder prepareBench(String... indices) {
-        return new BenchmarkRequestBuilder(this, indices);
+    public BenchmarkStartRequestBuilder prepareStartBenchmark(String... indices) {
+        return new BenchmarkStartRequestBuilder(this, indices);
     }
 
     @Override
-    public void abortBench(AbortBenchmarkRequest request, ActionListener<AbortBenchmarkResponse> listener) {
-        execute(AbortBenchmarkAction.INSTANCE, request, listener);
+    public void abortBench(BenchmarkAbortRequest request, ActionListener<BenchmarkAbortResponse> listener) {
+        execute(BenchmarkAbortAction.INSTANCE, request, listener);
     }
 
     @Override
-    public AbortBenchmarkRequestBuilder prepareAbortBench(String... benchmarkNames) {
-        return new AbortBenchmarkRequestBuilder(this).setBenchmarkNames(benchmarkNames);
+    public BenchmarkAbortRequestBuilder prepareAbortBench(String... benchmarkIdPatterns) {
+        return new BenchmarkAbortRequestBuilder(this).setBenchmarkIdPatterns(benchmarkIdPatterns);
     }
 
     @Override
-    public void benchStatus(BenchmarkStatusRequest request, ActionListener<BenchmarkStatusResponse> listener) {
+    public void benchmarkStatus(BenchmarkStatusRequest request, ActionListener<BenchmarkStatusResponses> listener) {
         execute(BenchmarkStatusAction.INSTANCE, request, listener);
     }
 
     @Override
-    public BenchmarkStatusRequestBuilder prepareBenchStatus() {
-        return new BenchmarkStatusRequestBuilder(this);
+    public ActionFuture<BenchmarkStatusResponses> benchmarkStatus(BenchmarkStatusRequest request) {
+        return execute(BenchmarkStatusAction.INSTANCE, request);
+    }
+
+    @Override
+    public BenchmarkStatusRequestBuilder prepareBenchmarkStatus(String... benchmarkIdPatterns) {
+        return new BenchmarkStatusRequestBuilder(this).setBenchmarkIdPatterns(benchmarkIdPatterns);
+    }
+
+    @Override
+    public void resumeBenchmark(BenchmarkResumeRequest request, ActionListener<BenchmarkResumeResponse> listener) {
+        execute(BenchmarkResumeAction.INSTANCE, request, listener);
+    }
+
+    @Override
+    public ActionFuture<BenchmarkResumeResponse> resumeBenchmark(BenchmarkResumeRequest request) {
+        return execute(BenchmarkResumeAction.INSTANCE, request);
+    }
+
+    @Override
+    public BenchmarkResumeRequestBuilder prepareResumeBenchmark(String... benchmarkIds) {
+        return new BenchmarkResumeRequestBuilder(this).setBenchmarkIdPatterns(benchmarkIds);
+    }
+
+    @Override
+    public void pauseBenchmark(BenchmarkPauseRequest request, ActionListener<BenchmarkPauseResponse> listener) {
+        execute(BenchmarkPauseAction.INSTANCE, request, listener);
+    }
+
+    @Override
+    public ActionFuture<BenchmarkPauseResponse> pauseBenchmark(BenchmarkPauseRequest request) {
+        return execute(BenchmarkPauseAction.INSTANCE, request);
+    }
+
+    @Override
+    public BenchmarkPauseRequestBuilder preparePauseBenchmark(String... benchmarkIdPatterns) {
+        return new BenchmarkPauseRequestBuilder(this).setBenchmarkIdPatterns(benchmarkIdPatterns);
     }
 }

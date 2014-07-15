@@ -23,12 +23,14 @@ import org.elasticsearch.action.index.IndexRequestBuilder;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.SearchType;
+import org.elasticsearch.index.query.FilterBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHitField;
 import org.elasticsearch.search.SearchHits;
+import org.elasticsearch.search.aggregations.Aggregator.SubAggCollectionMode;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregatorFactory.ExecutionMode;
-import org.elasticsearch.search.aggregations.bucket.tophits.TopHits;
+import org.elasticsearch.search.aggregations.metrics.tophits.TopHits;
 import org.elasticsearch.search.aggregations.metrics.max.Max;
 import org.elasticsearch.search.highlight.HighlightField;
 import org.elasticsearch.search.sort.SortBuilders;
@@ -64,6 +66,7 @@ public class TopHitsTests extends ElasticsearchIntegrationTest {
     @Override
     public void setupSuiteScopeCluster() throws Exception {
         createIndex("idx");
+        createIndex("empty");
         List<IndexRequestBuilder> builders = new ArrayList<>();
         for (int i = 0; i < 50; i++) {
             builders.add(client().prepareIndex("idx", "type", Integer.toString(i)).setSource(jsonBuilder()
@@ -75,7 +78,6 @@ public class TopHitsTests extends ElasticsearchIntegrationTest {
                     .endObject()));
         }
 
-        // Use routing to make sure all docs are in the same shard for consistent scoring
         builders.add(client().prepareIndex("idx", "field-collapsing", "1").setSource(jsonBuilder()
                 .startObject()
                 .field("group", "a")
@@ -169,6 +171,52 @@ public class TopHitsTests extends ElasticsearchIntegrationTest {
     }
 
     @Test
+    public void testPagination() throws Exception {
+        int size = randomIntBetween(1, 10);
+        int from = randomIntBetween(0, 10);
+        SearchResponse response = client().prepareSearch("idx").setTypes("type")
+                .addAggregation(terms("terms")
+                                .executionHint(randomExecutionHint())
+                                .field(TERMS_AGGS_FIELD)
+                                .subAggregation(
+                                        topHits("hits").addSort(SortBuilders.fieldSort(SORT_FIELD).order(SortOrder.DESC))
+                                                .setFrom(from)
+                                                .setSize(size)
+                                )
+                )
+                .get();
+        assertSearchResponse(response);
+
+        SearchResponse control = client().prepareSearch("idx")
+                .setTypes("type")
+                .setFrom(from)
+                .setSize(size)
+                .setPostFilter(FilterBuilders.termFilter(TERMS_AGGS_FIELD, "val0"))
+                .addSort(SORT_FIELD, SortOrder.DESC)
+                .get();
+        assertSearchResponse(control);
+        SearchHits controlHits = control.getHits();
+
+        Terms terms = response.getAggregations().get("terms");
+        assertThat(terms, notNullValue());
+        assertThat(terms.getName(), equalTo("terms"));
+        assertThat(terms.getBuckets().size(), equalTo(5));
+
+        Terms.Bucket bucket = terms.getBucketByKey("val0");
+        assertThat(bucket, notNullValue());
+        assertThat(bucket.getDocCount(), equalTo(10l));
+        TopHits topHits = bucket.getAggregations().get("hits");
+        SearchHits hits = topHits.getHits();
+        assertThat(hits.totalHits(), equalTo(controlHits.totalHits()));
+        assertThat(hits.getHits().length, equalTo(controlHits.getHits().length));
+        for (int i = 0; i < hits.getHits().length; i++) {
+            logger.info(i + ": top_hits: [" + hits.getAt(i).id() + "][" + hits.getAt(i).sortValues()[0] + "] control: [" + controlHits.getAt(i).id() + "][" + controlHits.getAt(i).sortValues()[0] + "]");
+            assertThat(hits.getAt(i).id(), equalTo(controlHits.getAt(i).id()));
+            assertThat(hits.getAt(i).sortValues()[0], equalTo(controlHits.getAt(i).sortValues()[0]));
+        }
+    }
+
+    @Test
     public void testSortByBucket() throws Exception {
         SearchResponse response = client().prepareSearch("idx").setTypes("type")
                 .addAggregation(terms("terms")
@@ -221,7 +269,7 @@ public class TopHitsTests extends ElasticsearchIntegrationTest {
                                         topHits("hits").setSize(1)
                                 )
                                 .subAggregation(
-                                        max("max_score").script("_doc.score")
+                                        max("max_score").script("_doc.score()")
                                 )
                 )
                 .get();
@@ -361,6 +409,43 @@ public class TopHitsTests extends ElasticsearchIntegrationTest {
         } catch (SearchPhaseExecutionException e) {
             assertThat(e.getMessage(), containsString("Aggregator [top_tags_hits] of type [top_hits] cannot accept sub-aggregations"));
         }
+    }
+    
+    @Test
+    public void testFailDeferred() throws Exception {
+        
+        try {
+            client().prepareSearch("idx")
+                    .setTypes("type")
+                    .addAggregation(
+                            terms("terms").executionHint(randomExecutionHint()).field(TERMS_AGGS_FIELD)
+                                    .collectMode(SubAggCollectionMode.BREADTH_FIRST)
+                                    .subAggregation(topHits("hits").addSort(SortBuilders.fieldSort(SORT_FIELD).order(SortOrder.DESC))))
+                    .get();
+            fail();
+        } catch (Exception e) {
+            // It is considered a parse failure if the search request asks for top_hits
+            // under an aggregation with collect_mode set to breadth_first as this would
+            // require the buffering of scores alongside each document ID and that is a
+            // a RAM cost we are not willing to pay 
+            assertThat(e.getMessage(), containsString("ElasticsearchParseException"));
+        }
+    }
+    
+    
+    
+
+    @Test
+    public void testEmptyIndex() throws Exception {
+        SearchResponse response = client().prepareSearch("empty").setTypes("type")
+                .addAggregation(topHits("hits"))
+                .get();
+        assertSearchResponse(response);
+
+        TopHits hits = response.getAggregations().get("hits");
+        assertThat(hits, notNullValue());
+        assertThat(hits.getName(), equalTo("hits"));
+        assertThat(hits.getHits().totalHits(), equalTo(0l));
     }
 
 }

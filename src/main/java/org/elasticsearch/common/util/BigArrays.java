@@ -118,7 +118,7 @@ public class BigArrays extends AbstractComponent {
         }
 
         @Override
-        public long sizeInBytes() {
+        public long ramBytesUsed() {
             return SHALLOW_SIZE + RamUsageEstimator.sizeOf(array);
         }
 
@@ -169,7 +169,7 @@ public class BigArrays extends AbstractComponent {
         }
 
         @Override
-        public long sizeInBytes() {
+        public long ramBytesUsed() {
             return SHALLOW_SIZE + RamUsageEstimator.sizeOf(array);
         }
 
@@ -212,7 +212,7 @@ public class BigArrays extends AbstractComponent {
         }
 
         @Override
-        public long sizeInBytes() {
+        public long ramBytesUsed() {
             return SHALLOW_SIZE + RamUsageEstimator.sizeOf(array);
         }
 
@@ -254,7 +254,7 @@ public class BigArrays extends AbstractComponent {
         }
 
         @Override
-        public long sizeInBytes() {
+        public long ramBytesUsed() {
             return SHALLOW_SIZE + RamUsageEstimator.sizeOf(array);
         }
 
@@ -297,7 +297,7 @@ public class BigArrays extends AbstractComponent {
         }
 
         @Override
-        public long sizeInBytes() {
+        public long ramBytesUsed() {
             return SHALLOW_SIZE + RamUsageEstimator.sizeOf(array);
         }
 
@@ -340,7 +340,7 @@ public class BigArrays extends AbstractComponent {
         }
 
         @Override
-        public long sizeInBytes() {
+        public long ramBytesUsed() {
             return SHALLOW_SIZE + RamUsageEstimator.alignObjectSize(RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + RamUsageEstimator.NUM_BYTES_OBJECT_REF * size());
         }
 
@@ -368,7 +368,7 @@ public class BigArrays extends AbstractComponent {
 
     @Inject
     public BigArrays(Settings settings, PageCacheRecycler recycler) {
-        this(settings, recycler, settings.getAsMemory(MAX_SIZE_IN_BYTES_SETTING, "20%").bytes());
+        this(settings, recycler, settings.getAsMemory(MAX_SIZE_IN_BYTES_SETTING, Long.toString(Long.MAX_VALUE)).bytes());
     }
 
     private BigArrays(Settings settings, PageCacheRecycler recycler, final long maxSizeInBytes) {
@@ -386,16 +386,16 @@ public class BigArrays extends AbstractComponent {
     }
 
     private <T extends AbstractBigArray> T resizeInPlace(T array, long newSize) {
-        final long oldMemSize = array.sizeInBytes();
+        final long oldMemSize = array.ramBytesUsed();
         array.resize(newSize);
-        validate(array.sizeInBytes() - oldMemSize);
+        validate(array.ramBytesUsed() - oldMemSize);
         return array;
     }
 
     private <T extends BigArray> T validate(T array) {
         boolean success = false;
         try {
-            validate(array.sizeInBytes());
+            validate(array.ramBytesUsed());
             success = true;
         } finally {
             if (!success) {

@@ -20,6 +20,7 @@
 package org.elasticsearch.index.query;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.ObjectArrays;
 import com.google.common.collect.Sets;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.queries.TermsFilter;
@@ -39,6 +40,7 @@ import org.elasticsearch.index.analysis.Analysis;
 import org.elasticsearch.index.mapper.Uid;
 import org.elasticsearch.index.mapper.internal.UidFieldMapper;
 import org.elasticsearch.index.search.morelikethis.MoreLikeThisFetchService;
+import org.elasticsearch.index.search.morelikethis.MoreLikeThisFetchService.LikeText;
 
 import java.io.IOException;
 import java.util.*;
@@ -205,11 +207,13 @@ public class MoreLikeThisQueryParser implements QueryParser {
                 }
             }
             // fetching the items with multi-get
-            List<MoreLikeThisFetchService.LikeText> likeTexts = fetchService.fetch(items);
+            List<LikeText> likeTexts = fetchService.fetch(items);
+            // collapse the text onto the same field name
+            Collection<LikeText> likeTextsCollapsed = collapseTextOnField(likeTexts);
             // right now we are just building a boolean query
             BooleanQuery boolQuery = new BooleanQuery();
-            for (MoreLikeThisFetchService.LikeText likeText : likeTexts) {
-                addMoreLikeThis(boolQuery, mltQuery, likeText.field, likeText.text);
+            for (LikeText likeText : likeTextsCollapsed) {
+                addMoreLikeThis(boolQuery, mltQuery, likeText);
             }
             // exclude the items from the search
             if (!include) {
@@ -227,10 +231,10 @@ public class MoreLikeThisQueryParser implements QueryParser {
         return mltQuery;
     }
 
-    private void addMoreLikeThis(BooleanQuery boolQuery, MoreLikeThisQuery mltQuery, String fieldName, String likeText) {
+    private void addMoreLikeThis(BooleanQuery boolQuery, MoreLikeThisQuery mltQuery, LikeText likeText) {
         MoreLikeThisQuery mlt = new MoreLikeThisQuery();
-        mlt.setMoreLikeFields(new String[] {fieldName});
-        mlt.setLikeText(likeText);
+        mlt.setMoreLikeFields(new String[] {likeText.field});
+        mlt.setLikeText(likeText.text);
         mlt.setAnalyzer(mltQuery.getAnalyzer());
         mlt.setPercentTermsToMatch(mltQuery.getPercentTermsToMatch());
         mlt.setBoostTerms(mltQuery.isBoostTerms());
@@ -257,6 +261,19 @@ public class MoreLikeThisQueryParser implements QueryParser {
             }
         }
         return moreLikeFields;
+    }
+
+    public static Collection<LikeText> collapseTextOnField (Collection<LikeText> likeTexts) {
+        Map<String, LikeText> collapsedTexts = new HashMap<>();
+        for (LikeText likeText : likeTexts) {
+            String field = likeText.field;
+            String[] text = likeText.text;
+            if (collapsedTexts.containsKey(field)) {
+                text = ObjectArrays.concat(collapsedTexts.get(field).text, text, String.class);
+            }
+            collapsedTexts.put(field, new LikeText(field, text));
+        }
+        return collapsedTexts.values();
     }
 
     private void removeUnsupportedFields(MultiGetRequest.Item item, Analyzer analyzer, boolean failOnUnsupportedField) throws IOException {

@@ -172,14 +172,22 @@ public class SearchPhaseController extends AbstractComponent {
                 }
             }
             if (canOptimize) {
+                int offset = result.from();
+                if (scrollSort) {
+                    offset = 0;
+                }
                 ScoreDoc[] scoreDocs = result.topDocs().scoreDocs;
-                if (scoreDocs.length == 0) {
+                if (scoreDocs.length == 0 || scoreDocs.length < offset) {
                     return EMPTY_DOCS;
                 }
-                int resultDocsSize = scoreDocs.length < result.size() ? scoreDocs.length : result.size();
+
+                int resultDocsSize = result.size();
+                if ((scoreDocs.length - offset) < resultDocsSize) {
+                    resultDocsSize = scoreDocs.length - offset;
+                }
                 ScoreDoc[] docs = new ScoreDoc[resultDocsSize];
                 for (int i = 0; i < resultDocsSize; i++) {
-                    ScoreDoc scoreDoc = scoreDocs[i];
+                    ScoreDoc scoreDoc = scoreDocs[offset + i];
                     scoreDoc.shardIndex = shardIndex;
                     docs[i] = scoreDoc;
                 }

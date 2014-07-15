@@ -78,7 +78,11 @@ import org.elasticsearch.rest.action.admin.indices.warmer.delete.RestDeleteWarme
 import org.elasticsearch.rest.action.admin.indices.warmer.get.RestGetWarmerAction;
 import org.elasticsearch.rest.action.admin.indices.warmer.put.RestPutWarmerAction;
 import org.elasticsearch.rest.action.admin.indices.recovery.RestRecoveryAction;
-import org.elasticsearch.rest.action.bench.RestBenchAction;
+import org.elasticsearch.rest.action.benchmark.abort.RestBenchmarkAbortAction;
+import org.elasticsearch.rest.action.benchmark.pause.RestBenchmarkPauseAction;
+import org.elasticsearch.rest.action.benchmark.resume.RestBenchmarkResumeAction;
+import org.elasticsearch.rest.action.benchmark.status.RestBenchmarkStatusAction;
+import org.elasticsearch.rest.action.benchmark.submit.RestBenchmarkSubmitAction;
 import org.elasticsearch.rest.action.bulk.RestBulkAction;
 import org.elasticsearch.rest.action.cat.*;
 import org.elasticsearch.rest.action.delete.RestDeleteAction;
@@ -93,11 +97,17 @@ import org.elasticsearch.rest.action.main.RestMainAction;
 import org.elasticsearch.rest.action.mlt.RestMoreLikeThisAction;
 import org.elasticsearch.rest.action.percolate.RestMultiPercolateAction;
 import org.elasticsearch.rest.action.percolate.RestPercolateAction;
+import org.elasticsearch.rest.action.script.RestDeleteIndexedScriptAction;
+import org.elasticsearch.rest.action.script.RestGetIndexedScriptAction;
+import org.elasticsearch.rest.action.script.RestPutIndexedScriptAction;
 import org.elasticsearch.rest.action.search.RestClearScrollAction;
 import org.elasticsearch.rest.action.search.RestMultiSearchAction;
 import org.elasticsearch.rest.action.search.RestSearchAction;
 import org.elasticsearch.rest.action.search.RestSearchScrollAction;
 import org.elasticsearch.rest.action.suggest.RestSuggestAction;
+import org.elasticsearch.rest.action.template.RestDeleteSearchTemplateAction;
+import org.elasticsearch.rest.action.template.RestGetSearchTemplateAction;
+import org.elasticsearch.rest.action.template.RestPutSearchTemplateAction;
 import org.elasticsearch.rest.action.termvector.RestMultiTermVectorsAction;
 import org.elasticsearch.rest.action.termvector.RestTermVectorAction;
 import org.elasticsearch.rest.action.update.RestUpdateAction;
@@ -211,7 +221,22 @@ public class RestActionModule extends AbstractModule {
 
         bind(RestRecoveryAction.class).asEagerSingleton();
         // Benchmark API
-        bind(RestBenchAction.class).asEagerSingleton();
+        bind(RestBenchmarkSubmitAction.class).asEagerSingleton();
+        bind(RestBenchmarkStatusAction.class).asEagerSingleton();
+        bind(RestBenchmarkAbortAction.class).asEagerSingleton();
+        bind(RestBenchmarkResumeAction.class).asEagerSingleton();
+        bind(RestBenchmarkPauseAction.class).asEagerSingleton();
+
+        // Templates API
+        bind(RestGetSearchTemplateAction.class).asEagerSingleton();
+        bind(RestPutSearchTemplateAction.class).asEagerSingleton();
+        bind(RestDeleteSearchTemplateAction.class).asEagerSingleton();
+
+        // Scripts API
+        bind(RestGetIndexedScriptAction.class).asEagerSingleton();
+        bind(RestPutIndexedScriptAction.class).asEagerSingleton();
+        bind(RestDeleteIndexedScriptAction.class).asEagerSingleton();
+
 
         // cat API
         Multibinder<AbstractCatAction> catActionMultibinder = Multibinder.newSetBinder(binder(), AbstractCatAction.class);

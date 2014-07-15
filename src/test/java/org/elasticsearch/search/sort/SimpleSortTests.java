@@ -20,7 +20,9 @@
 package org.elasticsearch.search.sort;
 
 
+import com.carrotsearch.randomizedtesting.annotations.Repeat;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.TestUtil;
 import org.apache.lucene.util.UnicodeUtil;
 import org.elasticsearch.ElasticsearchException;
@@ -28,6 +30,7 @@ import org.elasticsearch.action.index.IndexRequestBuilder;
 import org.elasticsearch.action.search.SearchPhaseExecutionException;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.search.ShardSearchFailure;
+import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.text.StringAndBytesText;
 import org.elasticsearch.common.text.Text;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -51,7 +54,6 @@ import static org.elasticsearch.common.xcontent.XContentFactory.jsonBuilder;
 import static org.elasticsearch.index.query.QueryBuilders.*;
 import static org.elasticsearch.index.query.functionscore.ScoreFunctionBuilders.scriptFunction;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.*;
-import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFailures;
 import static org.hamcrest.Matchers.*;
 
 
@@ -59,6 +61,66 @@ import static org.hamcrest.Matchers.*;
  *
  */
 public class SimpleSortTests extends ElasticsearchIntegrationTest {
+
+
+    @LuceneTestCase.AwaitsFix(bugUrl = "simon is working on this")
+    public void testIssue6614() throws ExecutionException, InterruptedException {
+        List<IndexRequestBuilder> builders = new ArrayList<>();
+        boolean strictTimeBasedIndices = randomBoolean();
+        final int numIndices = randomIntBetween(2, 25); // at most 25 days in the month
+        for (int i = 0; i < numIndices; i++) {
+          final String indexId = strictTimeBasedIndices ? "idx_" + i : "idx";
+          if (strictTimeBasedIndices || i == 0) {
+            createIndex(indexId);
+          }
+          final int numDocs = randomIntBetween(1, 23);  // hour of the day
+          for (int j = 0; j < numDocs; j++) {
+            builders.add(client().prepareIndex(indexId, "type").setSource("foo", "bar", "timeUpdated", "2014/07/" + String.format(Locale.ROOT, "%02d", i+1)+" " + String.format(Locale.ROOT, "%02d", j+1) + ":00:00"));
+          }
+        }
+        int docs = builders.size();
+        indexRandom(true, builders);
+        ensureYellow();
+        SearchResponse allDocsResponse = client().prepareSearch().setQuery(QueryBuilders.filteredQuery(matchAllQuery(),
+                FilterBuilders.boolFilter().must(FilterBuilders.termFilter("foo", "bar"),
+                        FilterBuilders.rangeFilter("timeUpdated").gte("2014/0" + randomIntBetween(1, 7) + "/01").cache(randomBoolean()))))
+                .addSort(new FieldSortBuilder("timeUpdated").order(SortOrder.ASC).ignoreUnmapped(true))
+                .setSize(docs).get();
+        assertSearchResponse(allDocsResponse);
+
+        final int numiters = randomIntBetween(1, 20);
+        for (int i = 0; i < numiters; i++) {
+            SearchResponse searchResponse = client().prepareSearch().setQuery(QueryBuilders.filteredQuery(matchAllQuery(),
+                    FilterBuilders.boolFilter().must(FilterBuilders.termFilter("foo", "bar"),
+                            FilterBuilders.rangeFilter("timeUpdated").gte("2014/" + String.format(Locale.ROOT, "%02d", randomIntBetween(1, 7)) + "/01").cache(randomBoolean()))))
+                    .addSort(new FieldSortBuilder("timeUpdated").order(SortOrder.ASC).ignoreUnmapped(true))
+                    .setSize(scaledRandomIntBetween(1, docs)).get();
+            assertSearchResponse(searchResponse);
+            for (int j = 0; j < searchResponse.getHits().hits().length; j++) {
+                assertThat(searchResponse.toString() + "\n vs. \n" + allDocsResponse.toString(), searchResponse.getHits().hits()[j].getId(), equalTo(allDocsResponse.getHits().hits()[j].getId()));
+            }
+        }
+
+    }
+
+    public void testIssue6639() throws ExecutionException, InterruptedException {
+        assertAcked(prepareCreate("$index")
+                .addMapping("$type","{\"$type\": {\"_boost\": {\"name\": \"boost\", \"null_value\": 1.0}, \"properties\": {\"grantee\": {\"index\": \"not_analyzed\", \"term_vector\": \"with_positions_offsets\", \"type\": \"string\", \"analyzer\": \"snowball\", \"boost\": 1.0, \"store\": \"yes\"}}}}"));
+        indexRandom(true,
+                client().prepareIndex("$index", "$type", "data.activity.5").setSource("{\"django_ct\": \"data.activity\", \"grantee\": \"Grantee 1\"}"),
+                client().prepareIndex("$index", "$type", "data.activity.6").setSource("{\"django_ct\": \"data.activity\", \"grantee\": \"Grantee 2\"}"));
+        ensureYellow();
+        SearchResponse searchResponse = client().prepareSearch()
+                .setQuery(matchAllQuery())
+                .addSort("grantee", SortOrder.ASC)
+                .execute().actionGet();
+        assertOrderedSearchHits(searchResponse, "data.activity.5", "data.activity.6");
+        searchResponse = client().prepareSearch()
+                .setQuery(matchAllQuery())
+                .addSort("grantee", SortOrder.DESC)
+                .execute().actionGet();
+        assertOrderedSearchHits(searchResponse, "data.activity.6", "data.activity.5");
+    }
 
     @Test
     public void testTrackScores() throws Exception {
@@ -687,7 +749,7 @@ public class SimpleSortTests extends ElasticsearchIntegrationTest {
         // test the long values
         SearchResponse searchResponse = client().prepareSearch()
                 .setQuery(matchAllQuery())
-                .addScriptField("min", "var retval = Long.MAX_VALUE; for (v : doc['lvalue'].values){  retval = Math.min(v, retval);} return retval;")
+                .addScriptField("min", "retval = Long.MAX_VALUE; for (v in doc['lvalue'].values){ retval = min(v, retval) }; retval")
                 .addSort("ord", SortOrder.ASC).setSize(10)
                 .execute().actionGet();
 
@@ -700,7 +762,7 @@ public class SimpleSortTests extends ElasticsearchIntegrationTest {
         // test the double values
         searchResponse = client().prepareSearch()
                 .setQuery(matchAllQuery())
-                .addScriptField("min", "var retval = Double.MAX_VALUE; for (v : doc['dvalue'].values){  retval = Math.min(v, retval);} return retval;")
+                .addScriptField("min", "retval = Double.MAX_VALUE; for (v in doc['dvalue'].values){ retval = min(v, retval) }; retval")
                 .addSort("ord", SortOrder.ASC).setSize(10)
                 .execute().actionGet();
 
@@ -714,7 +776,7 @@ public class SimpleSortTests extends ElasticsearchIntegrationTest {
         // test the string values
         searchResponse = client().prepareSearch()
                 .setQuery(matchAllQuery())
-                .addScriptField("min", "var retval = Integer.MAX_VALUE; for (v : doc['svalue'].values){  retval = Math.min(Integer.parseInt(v), retval);} return retval;")
+                .addScriptField("min", "retval = Integer.MAX_VALUE; for (v in doc['svalue'].values){ retval = min(Integer.parseInt(v), retval) }; retval")
                 .addSort("ord", SortOrder.ASC).setSize(10)
                 .execute().actionGet();
 
@@ -728,7 +790,7 @@ public class SimpleSortTests extends ElasticsearchIntegrationTest {
         // test the geopoint values
         searchResponse = client().prepareSearch()
                 .setQuery(matchAllQuery())
-                .addScriptField("min", "var retval = Double.MAX_VALUE; for (v : doc['gvalue'].values){  retval = Math.min(v.lon, retval);} return retval;")
+                .addScriptField("min", "retval = Double.MAX_VALUE; for (v in doc['gvalue'].values){ retval = min(v.lon, retval) }; retval")
                 .addSort("ord", SortOrder.ASC).setSize(10)
                 .execute().actionGet();
 
@@ -1576,6 +1638,41 @@ public class SimpleSortTests extends ElasticsearchIntegrationTest {
             assertThat(o instanceof StringAndBytesText, is(true));
             StringAndBytesText text = (StringAndBytesText) o;
             assertThat(text.string(), is("bar bar"));
+        }
+    }
+
+    @Test
+    public void testSortDuelBetweenSingleShardAndMultiShardIndex() throws Exception {
+        String sortField = "sortField";
+        assertAcked(prepareCreate("test1")
+                .setSettings(IndexMetaData.SETTING_NUMBER_OF_SHARDS, between(2, maximumNumberOfShards()))
+                .addMapping("type", sortField, "type=long").get());
+        assertAcked(prepareCreate("test2")
+                .setSettings(IndexMetaData.SETTING_NUMBER_OF_SHARDS, 1)
+                .addMapping("type", sortField, "type=long").get());
+
+        for (String index : new String[]{"test1", "test2"}) {
+            List<IndexRequestBuilder> docs = new ArrayList<>();
+            for (int i = 0; i < 256; i++) {
+                docs.add(client().prepareIndex(index, "type", Integer.toString(i)).setSource(sortField, i));
+            }
+            indexRandom(true, docs);
+        }
+
+        ensureSearchable("test1", "test2");
+        SortOrder order = randomBoolean() ? SortOrder.ASC : SortOrder.DESC;
+        int from = between(0, 256);
+        int size = between(0, 256);
+        SearchResponse multiShardResponse = client().prepareSearch("test1").setFrom(from).setSize(size).addSort(sortField, order).get();
+        assertNoFailures(multiShardResponse);
+        SearchResponse singleShardResponse = client().prepareSearch("test2").setFrom(from).setSize(size).addSort(sortField, order).get();
+        assertNoFailures(singleShardResponse);
+
+        assertThat(multiShardResponse.getHits().totalHits(), equalTo(singleShardResponse.getHits().totalHits()));
+        assertThat(multiShardResponse.getHits().getHits().length, equalTo(singleShardResponse.getHits().getHits().length));
+        for (int i = 0; i < multiShardResponse.getHits().getHits().length; i++) {
+            assertThat(multiShardResponse.getHits().getAt(i).sortValues()[0], equalTo(singleShardResponse.getHits().getAt(i).sortValues()[0]));
+            assertThat(multiShardResponse.getHits().getAt(i).id(), equalTo(singleShardResponse.getHits().getAt(i).id()));
         }
     }
 

@@ -18,6 +18,7 @@
  */
 package org.elasticsearch.search.suggest;
 
+import com.carrotsearch.hppc.ObjectLongOpenHashMap;
 import com.carrotsearch.randomizedtesting.generators.RandomStrings;
 import com.google.common.collect.Lists;
 import org.elasticsearch.ExceptionsHelper;
@@ -40,6 +41,7 @@ import org.elasticsearch.index.mapper.MapperParsingException;
 import org.elasticsearch.index.mapper.core.CompletionFieldMapper;
 import org.elasticsearch.percolator.PercolatorService;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
+import org.elasticsearch.search.aggregations.Aggregator.SubAggCollectionMode;
 import org.elasticsearch.search.sort.FieldSortBuilder;
 import org.elasticsearch.search.suggest.completion.CompletionStats;
 import org.elasticsearch.search.suggest.completion.CompletionSuggestion;
@@ -661,7 +663,7 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
 
         PutMappingResponse putMappingResponse = client().admin().indices().preparePutMapping(INDEX).setType(TYPE).setSource(jsonBuilder().startObject()
                 .startObject(TYPE).startObject("properties")
-                .startObject(FIELD)
+                .startObject(FIELD.toString())
                 .field("type", "completion").field("analyzer", "simple")
                 .endObject()
                 .startObject(otherField)
@@ -690,7 +692,8 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
 
         // regexes
         IndicesStatsResponse regexFieldStats = client().admin().indices().prepareStats(INDEX).setIndices(INDEX).setCompletion(true).setCompletionFields("*").get();
-        long regexSizeInBytes = regexFieldStats.getIndex(INDEX).getPrimaries().completion.getFields().get("*");
+        ObjectLongOpenHashMap<String> fields = regexFieldStats.getIndex(INDEX).getPrimaries().completion.getFields();
+        long regexSizeInBytes = fields.get(FIELD) + fields.get(otherField);
         assertThat(regexSizeInBytes, is(totalSizeInBytes));
     }
 
@@ -828,21 +831,21 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
     }
 
     private void createIndexAndMappingAndSettings(Settings settings, CompletionMappingBuilder completionMappingBuilder) throws IOException {
-        client().admin().indices().prepareCreate(INDEX)
+        assertAcked(client().admin().indices().prepareCreate(INDEX)
                 .setSettings(ImmutableSettings.settingsBuilder().put(indexSettings()).put(settings))
-                .get();
-        assertAcked(client().admin().indices().preparePutMapping(INDEX).setType(TYPE).setSource(jsonBuilder().startObject()
-                .startObject(TYPE).startObject("properties")
-                .startObject(FIELD)
-                .field("type", "completion")
-                .field("index_analyzer", completionMappingBuilder.indexAnalyzer)
-                .field("search_analyzer", completionMappingBuilder.searchAnalyzer)
-                .field("payloads", completionMappingBuilder.payloads)
-                .field("preserve_separators", completionMappingBuilder.preserveSeparators)
-                .field("preserve_position_increments", completionMappingBuilder.preservePositionIncrements)
-                .endObject()
-                .endObject().endObject()
-                .endObject()));
+                .addMapping(TYPE, jsonBuilder().startObject()
+                        .startObject(TYPE).startObject("properties")
+                        .startObject(FIELD)
+                        .field("type", "completion")
+                        .field("index_analyzer", completionMappingBuilder.indexAnalyzer)
+                        .field("search_analyzer", completionMappingBuilder.searchAnalyzer)
+                        .field("payloads", completionMappingBuilder.payloads)
+                        .field("preserve_separators", completionMappingBuilder.preserveSeparators)
+                        .field("preserve_position_increments", completionMappingBuilder.preservePositionIncrements)
+                        .endObject()
+                        .endObject().endObject()
+                        .endObject())
+                .get());
         ensureYellow();
     }
 
@@ -862,7 +865,7 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
                             .startArray("input").value(input[i]).endArray()
                             .field("output", surface[i])
                             .startObject("payload").field("id", i).endObject()
-                            .field("weight", 1) // WE FORCEFULLY INDEX A BOGUS WEIGHT 
+                            .field("weight", 1) // WE FORCEFULLY INDEX A BOGUS WEIGHT
                             .endObject()
                             .endObject()
                     );
@@ -931,11 +934,12 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
     @Test
     public void testMaxFieldLength() throws IOException {
         client().admin().indices().prepareCreate(INDEX).get();
+        ensureGreen();
         int iters = scaledRandomIntBetween(10, 20);
         for (int i = 0; i < iters; i++) {
             int maxInputLen = between(3, 50);
             String str = replaceReservedChars(randomRealisticUnicodeOfCodepointLengthBetween(maxInputLen + 1, maxInputLen + scaledRandomIntBetween(2, 50)), (char) 0x01);
-            ElasticsearchAssertions.assertAcked(client().admin().indices().preparePutMapping(INDEX).setType(TYPE).setSource(jsonBuilder().startObject()
+            assertAcked(client().admin().indices().preparePutMapping(INDEX).setType(TYPE).setSource(jsonBuilder().startObject()
                     .startObject(TYPE).startObject("properties")
                     .startObject(FIELD)
                     .field("type", "completion")
@@ -945,7 +949,6 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
                     .endObject()
                     .endObject().endObject()
                     .endObject()));
-            ensureYellow();
             client().prepareIndex(INDEX, TYPE, "1").setSource(jsonBuilder()
                     .startObject().startObject(FIELD)
                     .startArray("input").value(str).endArray()
@@ -969,14 +972,13 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
     @Test
     // see #3596
     public void testVeryLongInput() throws IOException {
-        client().admin().indices().prepareCreate(INDEX).get();
-        ElasticsearchAssertions.assertAcked(client().admin().indices().preparePutMapping(INDEX).setType(TYPE).setSource(jsonBuilder().startObject()
+        assertAcked(client().admin().indices().prepareCreate(INDEX).addMapping(TYPE, jsonBuilder().startObject()
                 .startObject(TYPE).startObject("properties")
                 .startObject(FIELD)
                 .field("type", "completion")
                 .endObject()
                 .endObject().endObject()
-                .endObject()));
+                .endObject()).get());
         ensureYellow();
         // can cause stack overflow without the default max_input_length
         String longString = replaceReservedChars(randomRealisticUnicodeOfLength(randomIntBetween(5000, 10000)), (char) 0x01);
@@ -992,14 +994,13 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
     // see #3648
     @Test(expected = MapperParsingException.class)
     public void testReservedChars() throws IOException {
-        client().admin().indices().prepareCreate(INDEX).get();
-        ElasticsearchAssertions.assertAcked(client().admin().indices().preparePutMapping(INDEX).setType(TYPE).setSource(jsonBuilder().startObject()
+        assertAcked(client().admin().indices().prepareCreate(INDEX).addMapping(TYPE, jsonBuilder().startObject()
                 .startObject(TYPE).startObject("properties")
                 .startObject(FIELD)
                 .field("type", "completion")
                 .endObject()
                 .endObject().endObject()
-                .endObject()));
+                .endObject()).get());
         ensureYellow();
         // can cause stack overflow without the default max_input_length
         String string = "foo" + (char) 0x00 + "bar";
@@ -1013,14 +1014,13 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
 
     @Test // see #5930
     public void testIssue5930() throws IOException {
-        client().admin().indices().prepareCreate(INDEX).get();
-        ElasticsearchAssertions.assertAcked(client().admin().indices().preparePutMapping(INDEX).setType(TYPE).setSource(jsonBuilder().startObject()
+        assertAcked(client().admin().indices().prepareCreate(INDEX).addMapping(TYPE, jsonBuilder().startObject()
                 .startObject(TYPE).startObject("properties")
                 .startObject(FIELD)
                 .field("type", "completion")
                 .endObject()
                 .endObject().endObject()
-                .endObject()));
+                .endObject()).get());
         ensureYellow();
         String string = "foo bar";
         client().prepareIndex(INDEX, TYPE, "1").setSource(jsonBuilder()
@@ -1030,7 +1030,8 @@ public class CompletionSuggestSearchTests extends ElasticsearchIntegrationTest {
         ).setRefresh(true).get();
 
         try {
-            client().prepareSearch(INDEX).addAggregation(AggregationBuilders.terms("suggest_agg").field(FIELD)).execute().actionGet();
+            client().prepareSearch(INDEX).addAggregation(AggregationBuilders.terms("suggest_agg").field(FIELD)
+                    .collectMode(randomFrom(SubAggCollectionMode.values()))).execute().actionGet();
             // Exception must be thrown
             assertFalse(true);
         } catch (SearchPhaseExecutionException e) {

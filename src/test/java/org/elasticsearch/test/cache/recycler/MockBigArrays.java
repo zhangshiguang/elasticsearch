@@ -31,8 +31,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.*;
 import org.elasticsearch.test.ElasticsearchTestCase;
 
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,8 +44,8 @@ public class MockBigArrays extends BigArrays {
      */
     private static final boolean TRACK_ALLOCATIONS = false;
 
-    private static volatile BigArrays INSTANCE = null;
-    private static ConcurrentMap<Object, Object> ACQUIRED_ARRAYS = new ConcurrentHashMap<>();
+    private static final Set<BigArrays> INSTANCES = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<BigArrays, Boolean>()));
+    private static final ConcurrentMap<Object, Object> ACQUIRED_ARRAYS = new ConcurrentHashMap<>();
 
     public static void ensureAllArraysAreReleased() throws Exception {
         final Map<Object, Object> masterCopy = Maps.newHashMap(ACQUIRED_ARRAYS);
@@ -69,22 +68,36 @@ public class MockBigArrays extends BigArrays {
                 }
             }
         }
-        if (INSTANCE != null) {
-            // BigArrays are used on the network layer and the cluster is shared across tests so nodes might still be talking to
-            // each other a bit after the test finished, wait a bit for things to stabilize if so
-            final boolean sizeIsZero = ElasticsearchTestCase.awaitBusy(new Predicate<Object>() {
-                @Override
-                public boolean apply(Object input) {
-                    return INSTANCE.sizeInBytes() == 0;
-                }
-            });
-            if (!sizeIsZero) {
-                final long sizeInBytes = INSTANCE.sizeInBytes();
-                if (sizeInBytes != 0) {
-                    throw new AssertionError("Expected 0 bytes, got " + sizeInBytes);
+        // arrays that are not fully released.
+        ArrayList<BigArrays> badBigArrays = new ArrayList<>();
+        synchronized (INSTANCES) {
+            for (final BigArrays bigArrays : INSTANCES) {
+                // BigArrays are used on the network layer and the cluster is shared across tests so nodes might still be talking to
+                // each other a bit after the test finished, wait a bit for things to stabilize if so
+                final boolean sizeIsZero = ElasticsearchTestCase.awaitBusy(new Predicate<Object>() {
+                    @Override
+                    public boolean apply(Object input) {
+                        return bigArrays.sizeInBytes() == 0;
+                    }
+                });
+                if (!sizeIsZero) {
+                    final long sizeInBytes = bigArrays.sizeInBytes();
+                    if (sizeInBytes != 0) {
+                        badBigArrays.add(bigArrays);
+                    }
                 }
             }
         }
+
+        if (!badBigArrays.isEmpty()) {
+            INSTANCES.removeAll(badBigArrays);
+            StringBuilder msg = new StringBuilder("Found [").append(badBigArrays.size()).append("] big arrays which were not fully released. Here is a list of the first 20:");
+            for (int i = 0; i < Math.min(20, badBigArrays.size()); i++) {
+                msg.append("\nbigArray instance with [").append(badBigArrays.get(i).sizeInBytes()).append("] bytes");
+            }
+            throw new AssertionError(msg.toString());
+        }
+
     }
 
     private final Random random;
@@ -99,7 +112,7 @@ public class MockBigArrays extends BigArrays {
             seed = 0;
         }
         random = new Random(seed);
-        INSTANCE = this;
+        INSTANCES.add(this);
     }
 
     @Override
@@ -271,8 +284,8 @@ public class MockBigArrays extends BigArrays {
             return getDelegate().size();
         }
 
-        public long sizeInBytes() {
-            return in.sizeInBytes();
+        public long ramBytesUsed() {
+            return in.ramBytesUsed();
         }
 
         public void close() {

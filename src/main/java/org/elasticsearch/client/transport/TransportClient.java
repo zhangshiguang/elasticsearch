@@ -23,9 +23,9 @@ import com.google.common.collect.ImmutableList;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.Version;
 import org.elasticsearch.action.*;
-import org.elasticsearch.action.bench.BenchmarkRequest;
-import org.elasticsearch.action.bench.BenchmarkRequestBuilder;
-import org.elasticsearch.action.bench.BenchmarkResponse;
+import org.elasticsearch.action.benchmark.start.BenchmarkStartRequest;
+import org.elasticsearch.action.benchmark.start.BenchmarkStartRequestBuilder;
+import org.elasticsearch.action.benchmark.start.BenchmarkStartResponse;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.count.CountRequest;
@@ -58,6 +58,7 @@ import org.elasticsearch.cache.recycler.CacheRecycler;
 import org.elasticsearch.cache.recycler.CacheRecyclerModule;
 import org.elasticsearch.cache.recycler.PageCacheRecycler;
 import org.elasticsearch.client.AdminClient;
+import org.elasticsearch.client.Client;
 import org.elasticsearch.client.support.AbstractClient;
 import org.elasticsearch.client.transport.support.InternalTransportClient;
 import org.elasticsearch.cluster.ClusterNameModule;
@@ -314,12 +315,12 @@ public class TransportClient extends AbstractClient {
     }
 
     @Override
-    public <Request extends ActionRequest, Response extends ActionResponse, RequestBuilder extends ActionRequestBuilder<Request, Response, RequestBuilder>> ActionFuture<Response> execute(Action<Request, Response, RequestBuilder> action, Request request) {
+    public <Request extends ActionRequest, Response extends ActionResponse, RequestBuilder extends ActionRequestBuilder<Request, Response, RequestBuilder, Client>> ActionFuture<Response> execute(Action<Request, Response, RequestBuilder, Client> action, Request request) {
         return internalClient.execute(action, request);
     }
 
     @Override
-    public <Request extends ActionRequest, Response extends ActionResponse, RequestBuilder extends ActionRequestBuilder<Request, Response, RequestBuilder>> void execute(Action<Request, Response, RequestBuilder> action, Request request, ActionListener<Response> listener) {
+    public <Request extends ActionRequest, Response extends ActionResponse, RequestBuilder extends ActionRequestBuilder<Request, Response, RequestBuilder, Client>> void execute(Action<Request, Response, RequestBuilder, Client> action, Request request, ActionListener<Response> listener) {
         internalClient.execute(action, request, listener);
     }
 
@@ -494,12 +495,12 @@ public class TransportClient extends AbstractClient {
     }
 
     @Override
-    public void bench(BenchmarkRequest request, ActionListener<BenchmarkResponse> listener) {
-        internalClient.bench(request, listener);
+    public void startBenchmark(BenchmarkStartRequest request, ActionListener<BenchmarkStartResponse> listener) {
+        internalClient.startBenchmark(request, listener);
     }
 
     @Override
-    public BenchmarkRequestBuilder prepareBench(String... indices) {
-        return internalClient.prepareBench(indices);
+    public BenchmarkStartRequestBuilder prepareStartBenchmark(String... indices) {
+        return internalClient.prepareStartBenchmark(indices);
     }
 }

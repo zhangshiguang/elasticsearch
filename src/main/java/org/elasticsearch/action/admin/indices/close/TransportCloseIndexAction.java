@@ -25,7 +25,6 @@ import org.elasticsearch.action.support.DestructiveOperations;
 import org.elasticsearch.action.support.master.TransportMasterNodeOperationAction;
 import org.elasticsearch.cluster.ClusterService;
 import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.cluster.ack.ClusterStateUpdateListener;
 import org.elasticsearch.cluster.ack.ClusterStateUpdateResponse;
 import org.elasticsearch.cluster.block.ClusterBlockException;
 import org.elasticsearch.cluster.block.ClusterBlockLevel;
@@ -81,17 +80,17 @@ public class TransportCloseIndexAction extends TransportMasterNodeOperationActio
 
     @Override
     protected ClusterBlockException checkBlock(CloseIndexRequest request, ClusterState state) {
-        return state.blocks().indicesBlockedException(ClusterBlockLevel.METADATA, request.indices());
+        return state.blocks().indicesBlockedException(ClusterBlockLevel.METADATA, state.metaData().concreteIndices(request.indicesOptions(), request.indices()));
     }
 
     @Override
     protected void masterOperation(final CloseIndexRequest request, final ClusterState state, final ActionListener<CloseIndexResponse> listener) throws ElasticsearchException {
-        request.indices(state.metaData().concreteIndices(request.indicesOptions(), request.indices()));
+        final String[] concreteIndices = state.metaData().concreteIndices(request.indicesOptions(), request.indices());
         CloseIndexClusterStateUpdateRequest updateRequest = new CloseIndexClusterStateUpdateRequest()
                 .ackTimeout(request.timeout()).masterNodeTimeout(request.masterNodeTimeout())
-                .indices(request.indices());
+                .indices(concreteIndices);
 
-        indexStateService.closeIndex(updateRequest, new ClusterStateUpdateListener() {
+        indexStateService.closeIndex(updateRequest, new ActionListener<ClusterStateUpdateResponse>() {
 
             @Override
             public void onResponse(ClusterStateUpdateResponse response) {
@@ -100,7 +99,7 @@ public class TransportCloseIndexAction extends TransportMasterNodeOperationActio
 
             @Override
             public void onFailure(Throwable t) {
-                logger.debug("failed to close indices [{}]", t, request.indices());
+                logger.debug("failed to close indices [{}]", t, concreteIndices);
                 listener.onFailure(t);
             }
         });

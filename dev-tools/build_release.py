@@ -541,7 +541,6 @@ if __name__ == '__main__':
   print('Preparing Release from branch [%s] running tests: [%s] dryrun: [%s]' % (src_branch, run_tests, dry_run))
   print('  JAVA_HOME is [%s]' % JAVA_HOME)
   print('  Running with maven command: [%s] ' % (MVN))
-
   if build:
     release_version = find_release_version(src_branch)
     ensure_no_open_tickets(release_version)

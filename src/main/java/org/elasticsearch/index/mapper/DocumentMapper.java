@@ -180,6 +180,8 @@ public class DocumentMapper implements ToXContent {
             this.rootMappers.put(TTLFieldMapper.class, new TTLFieldMapper());
             this.rootMappers.put(VersionFieldMapper.class, new VersionFieldMapper());
             this.rootMappers.put(ParentFieldMapper.class, new ParentFieldMapper());
+            // _field_names last so that it can see all other fields
+            this.rootMappers.put(FieldNamesFieldMapper.class, new FieldNamesFieldMapper(indexSettings));
         }
 
         public Builder meta(ImmutableMap<String, Object> meta) {
@@ -279,8 +281,6 @@ public class DocumentMapper implements ToXContent {
 
     private final Object mappersMutex = new Object();
 
-    private boolean initMappersAdded = true;
-
     public DocumentMapper(String index, @Nullable Settings indexSettings, DocumentMapperParser docMapperParser,
                           RootObjectMapper rootObjectMapper,
                           ImmutableMap<String, Object> meta,
@@ -329,7 +329,7 @@ public class DocumentMapper implements ToXContent {
         // now traverse and get all the statically defined ones
         rootObjectMapper.traverse(fieldMappersAgg);
 
-        this.fieldMappers = new DocumentFieldMappers(this);
+        this.fieldMappers = new DocumentFieldMappers(indexSettings, this);
         this.fieldMappers.addNewMappers(fieldMappersAgg.mappers);
 
         final Map<String, ObjectMapper> objectMappers = Maps.newHashMap();
@@ -384,6 +384,10 @@ public class DocumentMapper implements ToXContent {
 
     public SourceFieldMapper sourceMapper() {
         return rootMapper(SourceFieldMapper.class);
+    }
+
+    public AnalyzerMapper analyzerMapper() {
+        return rootMapper(AnalyzerMapper.class);
     }
 
     public AllFieldMapper allFieldMapper() {
@@ -476,11 +480,6 @@ public class DocumentMapper implements ToXContent {
                 parser = XContentHelper.createParser(source.source());
             }
             context.reset(parser, new ParseContext.Document(), source, listener);
-            // on a newly created instance of document mapper, we always consider it as new mappers that have been added
-            if (initMappersAdded) {
-                context.setMappingsModified();
-                initMappersAdded = false;
-            }
 
             // will result in START_OBJECT
             int countDownTokens = 0;
@@ -567,7 +566,7 @@ public class DocumentMapper implements ToXContent {
         return doc;
     }
 
-    public void addFieldMappers(Iterable<FieldMapper> fieldMappers) {
+    public void addFieldMappers(List<FieldMapper> fieldMappers) {
         synchronized (mappersMutex) {
             this.fieldMappers.addNewMappers(fieldMappers);
         }

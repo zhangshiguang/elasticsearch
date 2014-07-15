@@ -177,10 +177,13 @@ public class ElasticsearchRestTests extends ElasticsearchIntegrationTest {
     public void reset() throws IOException, RestException {
         //skip test if it matches one of the blacklist globs
         for (PathMatcher blacklistedPathMatcher : blacklistPathMatchers) {
-            assumeFalse("[" + testCandidate.getTestPath() + "] skipped, reason: blacklisted", blacklistedPathMatcher.matches(Paths.get(testCandidate.getTestPath())));
+            //we need to replace a few characters otherwise the test section name can't be parsed as a path on windows
+            String testSection = testCandidate.getTestSection().getName().replace("*", "").replace("\\", "/").replaceAll("\\s+/", "/").trim();
+            String testPath = testCandidate.getSuitePath() + "/" + testSection;
+            assumeFalse("[" + testCandidate.getTestPath() + "] skipped, reason: blacklisted", blacklistedPathMatcher.matches(Paths.get(testPath)));
         }
 
-        restTestExecutionContext.resetClient(immutableCluster().httpAddresses());
+        restTestExecutionContext.resetClient(cluster().httpAddresses());
         restTestExecutionContext.clear();
 
         //skip test if the whole suite (yaml file) is disabled
@@ -203,7 +206,7 @@ public class ElasticsearchRestTests extends ElasticsearchIntegrationTest {
 
     @Override
     protected boolean randomizeNumberOfShardsAndReplicas() {
-        return COMPATIBILITY_VERSION.onOrAfter(Version.V_1_2_0);
+        return compatibilityVersion().onOrAfter(Version.V_1_2_0);
     }
 
     @Test
